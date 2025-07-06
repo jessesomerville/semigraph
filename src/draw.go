@@ -60,7 +60,7 @@ func Render(img image.Image) string {
 			}
 			out.WriteString(toANSI(avgA, false))
 			out.WriteString(toANSI(avgB, true))
-			out.WriteRune(octantBitsToUTF8(mask))
+			out.WriteRune(blocks[mask])
 			out.WriteString("\x1b[0m")
 		}
 		out.WriteByte('\n')
