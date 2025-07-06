@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
 
@@ -25,12 +24,7 @@ func main() {
 	if err != nil {
 		fatalf("%v", err)
 	}
-
-	mid := image.NewRGBA(input.Bounds())
-	draw.FloydSteinberg.Draw(mid, input.Bounds(), input, image.Point{})
-
-	s := semigraph.Render(mid)
-	fmt.Println(s)
+	fmt.Println(semigraph.Render(input))
 }
 
 func fatalf(format string, args ...any) {
