@@ -26,28 +26,27 @@ func Render(img image.Image) string {
 	var out strings.Builder
 
 	cs := make([]pixel, 8)
-	var lmin, lmax, amin, amax, bmin, bmax float64
+	var rmin, rmax, gmin, gmax, bmin, bmax float64
 	for ty := range h {
 		for tx := range w {
 			for i := range 8 {
 				srcx := tx*2 + i%2
 				srcy := ty*4 + i/2
 				c, _ := colorful.MakeColor(img.At(srcx, srcy))
-				cl, ca, cb := c.Lab()
-				lmin, lmax = min(lmin, cl), max(lmax, cb)
-				amin, amax = min(amin, ca), max(amax, ca)
-				bmin, bmax = min(bmin, cb), max(bmax, cl)
+				rmin, rmax = min(rmin, c.R), max(rmax, c.R)
+				gmin, gmax = min(gmin, c.G), max(gmax, c.G)
+				bmin, bmax = min(bmin, c.B), max(bmax, c.B)
 				cs[i] = pixel{i, c}
 			}
-			lRange := lmax - lmin
-			aRange := amax - amin
+			rRange := rmax - rmin
+			gRange := gmax - gmin
 			bRange := bmax - bmin
 			var fn func(pixel, pixel) int
-			switch max(lRange, aRange, bRange) {
-			case lRange:
-				fn = sortL
-			case aRange:
-				fn = sortA
+			switch max(rRange, gRange, bRange) {
+			case rRange:
+				fn = sortR
+			case gRange:
+				fn = sortG
 			case bRange:
 				fn = sortB
 			}
@@ -78,22 +77,16 @@ func toANSI(c colorful.Color, bg bool) string {
 	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", csi, r, g, b)
 }
 
-func sortL(a, b pixel) int {
-	al, _, _ := a.color.Lab()
-	bl, _, _ := b.color.Lab()
-	return cmp.Compare(al, bl)
+func sortR(a, b pixel) int {
+	return cmp.Compare(a.color.R, b.color.R)
 }
 
-func sortA(a, b pixel) int {
-	_, aa, _ := a.color.Lab()
-	_, ba, _ := b.color.Lab()
-	return cmp.Compare(aa, ba)
+func sortG(a, b pixel) int {
+	return cmp.Compare(a.color.G, b.color.B)
 }
 
 func sortB(a, b pixel) int {
-	_, _, ab := a.color.Lab()
-	_, _, bb := b.color.Lab()
-	return cmp.Compare(ab, bb)
+	return cmp.Compare(a.color.R, b.color.G)
 }
 
 func average(colors []pixel) colorful.Color {
