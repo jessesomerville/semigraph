@@ -30,14 +30,11 @@ func RenderGIF(g *gif.GIF) (*GIF, error) {
 		return nil, errors.New("semigraph: mismatched GIF image and disposal lengths")
 	}
 
-	srcWidth := g.Config.Width
-	srcHeight := g.Config.Height
-
 	out := &GIF{
 		frames: make([]*frame, len(g.Image)),
-		lines:  srcHeight,
+		lines:  g.Config.Height,
 	}
-	gBounds := image.Rect(0, 0, srcWidth, srcHeight)
+	gBounds := image.Rect(0, 0, g.Config.Width, g.Config.Height)
 	norms := make([]image.Image, len(g.Image))
 	for i, frm := range g.Image {
 		base := image.NewRGBA(gBounds)
@@ -66,8 +63,7 @@ func (g *GIF) Play() {
 	if n == 0 {
 		return
 	}
-	fmt.Print("\x1b[2J\x1b[H")         // clear the screen and save the cursor position
-	time.Sleep(time.Millisecond * 300) // wait before drawing
+	fmt.Print("\x1b[2J\x1b[H")
 
 	i := 0
 	for {
@@ -75,11 +71,14 @@ func (g *GIF) Play() {
 		i++
 		i %= n
 		fmt.Print(f.contents)
-		fmt.Printf("\x1b[%dF", g.lines) // return to the saved cursor position
+		fmt.Printf("\x1b[%dF", g.lines)
 		time.Sleep(f.delay)
 	}
 }
 
-func (g *GIF) ShowFrame(n int) {
-	fmt.Println(g.frames[n].contents)
+func (g *GIF) RenderFrame(n int) (string, error) {
+	if n < 0 || n >= len(g.frames) {
+		return "", errors.New("semigraph: frame out of bounds")
+	}
+	return g.frames[n].contents, nil
 }

@@ -1,9 +1,5 @@
 # semigraph
 
-## Median quantize errors
+Render pictures and GIFs in your terminal using Unicode block characters.
 
-| Method                 | Error  |
-| ---------------------- | ------ |
-| Default                | 0.1027 |
-| Average in RGB         | 0.1041 |
-| Floyd-Steinberg Dither | 0.1124 |
+[]

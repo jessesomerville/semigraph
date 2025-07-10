@@ -5,10 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"math"
 	"os"
 	"strings"
-	"time"
 
 	"image/gif"
 	_ "image/jpeg"
@@ -20,39 +18,29 @@ import (
 func main() {
 	flag.Parse()
 
-	if flag.NArg() < 1 {
+	inPath := flag.Arg(0)
+	if inPath == "" {
 		fatalf("usage: semigraph <input_path>")
 	}
-	input, format, err := readInput(flag.Arg(0))
+
+	format, err := readImgType(inPath)
 	if err != nil {
-		fatalf("%v", err)
+		fatalf("semigraph: %v", err)
 	}
-	if format == "gif" {
-		// image.Decode only returns the first frame when reading a GIF
-		// so it has to be read again to get the full contents.
-		g, err := readGIF(flag.Arg(0))
-		if err != nil {
-			fatalf("%v", err)
-		}
 
-		gg, err := semigraph.RenderGIF(g)
-		if err != nil {
-			fatalf(err.Error())
-		}
-		// gg.ShowFrame(0)
-		// gg.ShowFrame(1)
-		gg.Play()
-
-		// frames := make([]gifFrame, len(g.Image))
-		// delays := make([]time.Duration, len(g.Delay))
-		// for i, img := range g.Image {
-		// 	frames[i] = newGIFFrame(img)
-		// 	delays[i] = time.Millisecond * time.Duration(g.Delay[i]) * 10
-		// }
-		// loopGIF(frames, delays)
-
-	} else {
-		fmt.Println(semigraph.Render(input))
+	f, err := os.Open(inPath)
+	if err != nil {
+		fatalf("semigraph: %v", err)
+	}
+	defer f.Close()
+	switch format {
+	case "gif":
+		err = playGIF(f)
+	case "png", "jpeg":
+		err = showImage(f)
+	}
+	if err != nil {
+		fatalf("semigraph: %v", err)
 	}
 }
 
@@ -64,61 +52,34 @@ func fatalf(format string, args ...any) {
 	os.Exit(2)
 }
 
-func readInput(path string) (image.Image, string, error) {
-	reader, err := os.Open(path)
+func readImgType(path string) (string, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
-	defer reader.Close()
-
-	return image.Decode(reader)
+	defer f.Close()
+	_, format, err := image.DecodeConfig(f)
+	return format, err
 }
 
-func readGIF(path string) (*gif.GIF, error) {
-	reader, err := os.Open(path)
+func showImage(f *os.File) error {
+	input, _, err := image.Decode(f)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return gif.DecodeAll(reader)
+	fmt.Println(semigraph.Render(input))
+	return nil
 }
 
-type gifFrame struct {
-	offsetX, offsetY int
-	contents         []string
-}
-
-func newGIFFrame(img image.Image) gifFrame {
-	b := img.Bounds()
-	return gifFrame{
-		offsetX:  int(math.Floor(float64(b.Min.X) / 2)),
-		offsetY:  int(math.Floor(float64(b.Min.Y) / 4)),
-		contents: strings.Split(semigraph.Render(img), "\n"),
+func playGIF(f *os.File) error {
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		return err
 	}
-}
-
-func (g gifFrame) Draw() {
-	if g.offsetY > 0 {
-		fmt.Printf("\x1b[%dE", g.offsetY)
+	gg, err := semigraph.RenderGIF(g)
+	if err != nil {
+		return err
 	}
-	for _, line := range g.contents {
-		if g.offsetX > 0 {
-			fmt.Printf("\x1b[%dC", g.offsetX)
-		}
-		fmt.Print(line)
-		fmt.Print("\x1b[E")
-	}
-	fmt.Print("\x1b[H")
-}
-
-func loopGIF(frames []gifFrame, delays []time.Duration) {
-	fmt.Print("\x1b[2J")
-	i := 0
-	n := len(frames)
-	for {
-		frame := frames[i]
-		i++
-		i %= n
-		frame.Draw()
-		time.Sleep(delays[i])
-	}
+	gg.Play()
+	return nil
 }
