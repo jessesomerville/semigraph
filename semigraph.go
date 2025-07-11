@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 
@@ -17,14 +18,30 @@ import (
 func main() {
 	flag.Parse()
 
-	if flag.NArg() < 1 {
+	inPath := flag.Arg(0)
+	if inPath == "" {
 		fatalf("usage: semigraph <input_path>")
 	}
-	input, err := readInput(flag.Arg(0))
+
+	format, err := readImgType(inPath)
 	if err != nil {
-		fatalf("%v", err)
+		fatalf("semigraph: %v", err)
 	}
-	fmt.Println(semigraph.Render(input))
+
+	f, err := os.Open(inPath)
+	if err != nil {
+		fatalf("semigraph: %v", err)
+	}
+	defer f.Close()
+	switch format {
+	case "gif":
+		err = playGIF(f)
+	case "png", "jpeg":
+		err = showImage(f)
+	}
+	if err != nil {
+		fatalf("semigraph: %v", err)
+	}
 }
 
 func fatalf(format string, args ...any) {
@@ -35,13 +52,34 @@ func fatalf(format string, args ...any) {
 	os.Exit(2)
 }
 
-func readInput(path string) (image.Image, error) {
-	reader, err := os.Open(path)
+func readImgType(path string) (string, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	defer reader.Close()
+	defer f.Close()
+	_, format, err := image.DecodeConfig(f)
+	return format, err
+}
 
-	img, _, err := image.Decode(reader)
-	return img, err
+func showImage(f *os.File) error {
+	input, _, err := image.Decode(f)
+	if err != nil {
+		return err
+	}
+	fmt.Println(semigraph.Render(input))
+	return nil
+}
+
+func playGIF(f *os.File) error {
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		return err
+	}
+	gg, err := semigraph.RenderGIF(g)
+	if err != nil {
+		return err
+	}
+	gg.Play()
+	return nil
 }

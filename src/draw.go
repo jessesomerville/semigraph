@@ -2,18 +2,15 @@ package semigraph
 
 import (
 	"cmp"
-	"fmt"
 	"image"
 	"math"
 	"slices"
 	"strings"
-
-	"github.com/lucasb-eyer/go-colorful"
 )
 
 type pixel struct {
 	idx   int
-	color colorful.Color
+	color Color
 }
 
 // Render renders the img using semigraphic characters and ANSI escapes.
@@ -25,41 +22,12 @@ func Render(img image.Image) string {
 
 	var out strings.Builder
 
-	cs := make([]pixel, 8)
-	var rmin, rmax, gmin, gmax, bmin, bmax float64
 	for ty := range h {
 		for tx := range w {
-			for i := range 8 {
-				srcx := tx*2 + i%2
-				srcy := ty*4 + i/2
-				c, _ := colorful.MakeColor(img.At(srcx, srcy))
-				rmin, rmax = min(rmin, c.R), max(rmax, c.R)
-				gmin, gmax = min(gmin, c.G), max(gmax, c.G)
-				bmin, bmax = min(bmin, c.B), max(bmax, c.B)
-				cs[i] = pixel{i, c}
-			}
-			rRange := rmax - rmin
-			gRange := gmax - gmin
-			bRange := bmax - bmin
-			var fn func(pixel, pixel) int
-			switch max(rRange, gRange, bRange) {
-			case rRange:
-				fn = sortR
-			case gRange:
-				fn = sortG
-			case bRange:
-				fn = sortB
-			}
-			slices.SortFunc(cs, fn)
-			avgA, avgB := average(cs[:4]), average(cs[4:])
-
-			var mask uint8
-			for _, c := range cs[:4] {
-				mask |= 1 << c.idx
-			}
-			out.WriteString(toANSI(avgA, false))
-			out.WriteString(toANSI(avgB, true))
-			out.WriteRune(blocks[mask])
+			fg, bg, r := quantize(tx, ty, img)
+			out.WriteString(fg.Foreground())
+			out.WriteString(bg.Background())
+			out.WriteRune(r)
 			out.WriteString("\x1b[0m")
 		}
 		out.WriteByte('\n')
@@ -68,13 +36,38 @@ func Render(img image.Image) string {
 	return out.String()
 }
 
-func toANSI(c colorful.Color, bg bool) string {
-	r, g, b := c.Clamped().RGB255()
-	csi := 38
-	if bg {
-		csi = 48
+func quantize(x, y int, img image.Image) (fg, bg Color, contents rune) {
+	cs := make([]pixel, 8)
+	var rmin, rmax, gmin, gmax, bmin, bmax uint8
+	for i := range 8 {
+		srcx := x*2 + i%2 + img.Bounds().Min.X
+		srcy := y*4 + i/2 + img.Bounds().Min.Y
+		c := NewColor(img.At(srcx, srcy))
+		rmin, rmax = min(rmin, c.R), max(rmax, c.R)
+		gmin, gmax = min(gmin, c.G), max(gmax, c.G)
+		bmin, bmax = min(bmin, c.B), max(bmax, c.B)
+		cs[i] = pixel{i, c}
 	}
-	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", csi, r, g, b)
+	rRange := rmax - rmin
+	gRange := gmax - gmin
+	bRange := bmax - bmin
+	var fn func(pixel, pixel) int
+	switch max(rRange, gRange, bRange) {
+	case rRange:
+		fn = sortR
+	case gRange:
+		fn = sortG
+	case bRange:
+		fn = sortB
+	}
+	slices.SortFunc(cs, fn)
+	avgA, avgB := average(cs[:4]), average(cs[4:])
+
+	var mask uint8
+	for _, c := range cs[:4] {
+		mask |= 1 << c.idx
+	}
+	return avgA, avgB, blocks[mask]
 }
 
 func sortR(a, b pixel) int {
@@ -82,25 +75,17 @@ func sortR(a, b pixel) int {
 }
 
 func sortG(a, b pixel) int {
-	return cmp.Compare(a.color.G, b.color.B)
+	return cmp.Compare(a.color.G, b.color.G)
 }
 
 func sortB(a, b pixel) int {
-	return cmp.Compare(a.color.R, b.color.G)
+	return cmp.Compare(a.color.B, b.color.B)
 }
 
-func average(colors []pixel) colorful.Color {
-	if len(colors) == 0 {
-		return colorful.Color{}
+func average(colors []pixel) Color {
+	cs := make([]Color, len(colors))
+	for i, c := range colors {
+		cs[i] = c.color
 	}
-
-	var nl, na, nb float64
-	for _, c := range colors {
-		l, a, b := c.color.Lab()
-		nl += l
-		na += a
-		nb += b
-	}
-	n := float64(len(colors))
-	return colorful.Lab(nl/n, na/n, nb/n).Clamped()
+	return Average(cs)
 }
