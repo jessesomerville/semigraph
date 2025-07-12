@@ -7,7 +7,6 @@ import (
 )
 
 // Average returns a color representing the average of colors.
-// TODO: Remove all of the L*a*b* nonsense and just use RGB instead.
 func Average(colors []Color) Color {
 	switch len(colors) {
 	case 0:
