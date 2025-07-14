@@ -1,3 +1,6 @@
 examples/
 outputs/
 semigraph
+
+**/*.test
+**/*.prof

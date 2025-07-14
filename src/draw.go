@@ -19,30 +19,34 @@ func Render(img image.Image) string {
 	srch := img.Bounds().Dy()
 	w := int(math.Floor(float64(srcw) / 2))
 	h := int(math.Floor(float64(srch) / 4))
+	at := NewColorAtFunc(img)
+	minx, miny := img.Bounds().Min.X, img.Bounds().Min.Y
 
 	var out strings.Builder
-
+	out.Grow(h * w * 32)
 	for ty := range h {
 		for tx := range w {
-			fg, bg, r := quantize(tx, ty, img)
-			out.WriteString(fg.Foreground())
-			out.WriteString(bg.Background())
+			fg, bg, r := quantize(tx, ty, minx, miny, at)
+			out.WriteString("\x1b[48;2;")
+			bg.WriteANSI(&out)
+			out.WriteString(";38;2;")
+			fg.WriteANSI(&out)
+			out.WriteByte('m')
 			out.WriteRune(r)
-			out.WriteString("\x1b[0m")
 		}
-		out.WriteByte('\n')
+		out.WriteString("\x1b[m\n")
 	}
 
 	return out.String()
 }
 
-func quantize(x, y int, img image.Image) (fg, bg Color, contents rune) {
+func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune) {
 	cs := make([]pixel, 8)
 	var rmin, rmax, gmin, gmax, bmin, bmax uint8
 	for i := range 8 {
-		srcx := x*2 + i%2 + img.Bounds().Min.X
-		srcy := y*4 + i/2 + img.Bounds().Min.Y
-		c := NewColor(img.At(srcx, srcy))
+		srcx := x*2 + i%2 + minx
+		srcy := y*4 + i/2 + miny
+		c := at(srcx, srcy)
 		rmin, rmax = min(rmin, c.R), max(rmax, c.R)
 		gmin, gmax = min(gmin, c.G), max(gmax, c.G)
 		bmin, bmax = min(bmin, c.B), max(bmax, c.B)
