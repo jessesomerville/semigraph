@@ -24,6 +24,11 @@ func init() {
 // Color is a color.
 type Color struct {
 	R, G, B uint8
+
+	// This is used to preserve pixel location when quantizing.
+	// It lives here to prevent allocating memory to store it
+	// elsewhere.
+	idx int
 }
 
 func (c Color) WriteANSI(buf *strings.Builder) {
@@ -32,6 +37,10 @@ func (c Color) WriteANSI(buf *strings.Builder) {
 	buf.WriteString(colorLUT[c.G])
 	buf.WriteByte(';')
 	buf.WriteString(colorLUT[c.B])
+}
+
+func (c Color) Show() string {
+	return fmt.Sprintf("\x1b[48;2;%s;%s;%sm  \x1b[m", colorLUT[c.R], colorLUT[c.G], colorLUT[c.B])
 }
 
 var colorLUT = [256]string{
@@ -90,12 +99,13 @@ func newColorAtFuncRGBA(p *image.RGBA) ColorAtFunc {
 			return Color{}
 		}
 		if c.A == 0xff {
-			return Color{c.R, c.G, c.B}
+			return Color{c.R, c.G, c.B, 0}
 		}
 		return Color{
 			uint8(uint32(c.R*c.A) >> 8),
 			uint8(uint32(c.G*c.A) >> 8),
 			uint8(uint32(c.B*c.A) >> 8),
+			0,
 		}
 	}
 }
@@ -107,13 +117,14 @@ func newColorAtFuncNRGBA(p *image.NRGBA) ColorAtFunc {
 			return Color{}
 		}
 		if c.A == 0xff {
-			return Color{c.R, c.G, c.B}
+			return Color{c.R, c.G, c.B, 0}
 		}
 		rr, gg, bb, aa := color.NRGBA{c.R, c.G, c.B, c.A}.RGBA()
 		return Color{
 			uint8(rr * aa >> 8),
 			uint8(gg * aa >> 8),
 			uint8(bb * aa >> 8),
+			0,
 		}
 	}
 }
@@ -122,7 +133,7 @@ func newColorAtFuncYCbCr(p *image.YCbCr) ColorAtFunc {
 	return func(x, y int) Color {
 		c := p.YCbCrAt(x, y)
 		r, g, b := color.YCbCrToRGB(c.Y, c.Cb, c.Cr)
-		return Color{r, g, b}
+		return Color{r, g, b, 0}
 	}
 }
 
@@ -159,7 +170,8 @@ func fromLinear(c float64) uint8 {
 	closest := 0
 	minDelta := math.MaxFloat64
 	for i := range 256 {
-		delta := math.Abs(c - toLinearLUT[i])
+		delta := c - toLinearLUT[i]
+		delta = max(delta, -delta)
 		if delta < minDelta {
 			minDelta = delta
 			closest = i

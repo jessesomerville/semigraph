@@ -2,6 +2,7 @@ package semigraph
 
 import (
 	"cmp"
+	"fmt"
 	"image"
 	"math"
 	"slices"
@@ -23,7 +24,7 @@ func Render(img image.Image) string {
 	minx, miny := img.Bounds().Min.X, img.Bounds().Min.Y
 
 	var out strings.Builder
-	out.Grow(h * w * 32)
+	// out.Grow(h * w * 32)
 	for ty := range h {
 		for tx := range w {
 			fg, bg, r := quantize(tx, ty, minx, miny, at)
@@ -36,36 +37,35 @@ func Render(img image.Image) string {
 		}
 		out.WriteString("\x1b[m\n")
 	}
-
+	fmt.Println(out.Len())
 	return out.String()
 }
 
 func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune) {
-	cs := make([]pixel, 8)
+	cs := make([]Color, 8)
 	var rmin, rmax, gmin, gmax, bmin, bmax uint8
 	for i := range 8 {
 		srcx := x*2 + i%2 + minx
 		srcy := y*4 + i/2 + miny
 		c := at(srcx, srcy)
+		c.idx = i
+		cs[i] = c
 		rmin, rmax = min(rmin, c.R), max(rmax, c.R)
 		gmin, gmax = min(gmin, c.G), max(gmax, c.G)
 		bmin, bmax = min(bmin, c.B), max(bmax, c.B)
-		cs[i] = pixel{i, c}
 	}
 	rRange := rmax - rmin
 	gRange := gmax - gmin
 	bRange := bmax - bmin
-	var fn func(pixel, pixel) int
 	switch max(rRange, gRange, bRange) {
 	case rRange:
-		fn = sortR
+		slices.SortFunc(cs, sortR)
 	case gRange:
-		fn = sortG
+		slices.SortFunc(cs, sortG)
 	case bRange:
-		fn = sortB
+		slices.SortFunc(cs, sortB)
 	}
-	slices.SortFunc(cs, fn)
-	avgA, avgB := average(cs[:4]), average(cs[4:])
+	avgA, avgB := Average(cs[:4]), Average(cs[4:])
 
 	var mask uint8
 	for _, c := range cs[:4] {
@@ -74,22 +74,14 @@ func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune
 	return avgA, avgB, blocks[mask]
 }
 
-func sortR(a, b pixel) int {
-	return cmp.Compare(a.color.R, b.color.R)
+func sortR(a, b Color) int {
+	return cmp.Compare(a.R, b.R)
 }
 
-func sortG(a, b pixel) int {
-	return cmp.Compare(a.color.G, b.color.G)
+func sortG(a, b Color) int {
+	return cmp.Compare(a.G, b.G)
 }
 
-func sortB(a, b pixel) int {
-	return cmp.Compare(a.color.B, b.color.B)
-}
-
-func average(colors []pixel) Color {
-	cs := make([]Color, len(colors))
-	for i, c := range colors {
-		cs[i] = c.color
-	}
-	return Average(cs)
+func sortB(a, b Color) int {
+	return cmp.Compare(a.B, b.B)
 }
