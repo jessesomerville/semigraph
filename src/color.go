@@ -21,9 +21,14 @@ func init() {
 	}
 }
 
+var Transparent = Color{alpha: true}
+
 // Color is a color.
 type Color struct {
+	// Red, Green, and Blue channels.
 	R, G, B uint8
+
+	alpha bool
 
 	// This is used to preserve pixel location when quantizing.
 	// It lives here to prevent allocating memory to store it
@@ -31,7 +36,50 @@ type Color struct {
 	idx int
 }
 
-func (c Color) WriteANSI(buf *strings.Builder) {
+func RGB(r, g, b uint8) Color {
+	return Color{R: r, G: g, B: b}
+}
+
+// to8bit returns the color's corresponding code from the 6x6x6 color cube
+// defined by the range [16,231] and whether that conversion was successful or
+// not.
+//
+// See https://en.wikipedia.com/wiki/ANSI_escape_code#8-bit.
+func to8bit(c Color) (uint8, bool) {
+	clamp := func(v uint8) (uint8, bool) {
+		if v == 0 {
+			return 0, true
+		}
+		if v < 0x5f {
+			return 0, false
+		}
+		v -= 55
+		if v%40 == 0 {
+			return v / 40, true
+		}
+		return 0, false
+	}
+
+	r, rok := clamp(c.R)
+	g, gok := clamp(c.G)
+	b, bok := clamp(c.B)
+	if !(rok && gok && bok) {
+		return 0, false
+	}
+	return 16 + (r * 36) + (g * 6) + b, true
+}
+
+func writeANSI(buf *strings.Builder, c Color) {
+	if c.alpha {
+		return
+	}
+
+	if v, ok := to8bit(c); ok {
+		buf.WriteString("5;")
+		buf.WriteString(colorLUT[v])
+		return
+	}
+	buf.WriteString("2;")
 	buf.WriteString(colorLUT[c.R])
 	buf.WriteByte(';')
 	buf.WriteString(colorLUT[c.G])
@@ -39,8 +87,33 @@ func (c Color) WriteANSI(buf *strings.Builder) {
 	buf.WriteString(colorLUT[c.B])
 }
 
-func (c Color) Show() string {
-	return fmt.Sprintf("\x1b[48;2;%s;%s;%sm  \x1b[m", colorLUT[c.R], colorLUT[c.G], colorLUT[c.B])
+// WriteStyled writes the foreground and background ANSI sequences to w.
+//
+// If neither color is [Transparent], the written escape sequence is in the
+// following format:
+//
+//	\x1b[48;<bg>;38;<fg>m
+//
+// Where <bg> and <fg> are either 8-bit or 24-bit color codes. The escape
+// sequence for a color will be omitted if that color is [Transparent], and
+// calling WriteStyled with both fg and bg == Transparent is a no-op.
+func WriteStyled(buf *strings.Builder, fg, bg Color) {
+	if fg.alpha && bg.alpha {
+		return
+	}
+	buf.WriteString("\x1b[")
+	if !bg.alpha {
+		buf.WriteString("48;")
+		writeANSI(buf, bg)
+	}
+	if !fg.alpha {
+		if !bg.alpha {
+			buf.WriteByte(';')
+		}
+		buf.WriteString("38;")
+		writeANSI(buf, fg)
+	}
+	buf.WriteByte('m')
 }
 
 var colorLUT = [256]string{
@@ -96,17 +169,16 @@ func newColorAtFuncRGBA(p *image.RGBA) ColorAtFunc {
 	return func(x, y int) Color {
 		c := p.RGBAAt(x, y)
 		if c.A == 0x00 {
-			return Color{}
+			return Transparent
 		}
 		if c.A == 0xff {
-			return Color{c.R, c.G, c.B, 0}
+			return RGB(c.R, c.G, c.B)
 		}
-		return Color{
-			uint8(uint32(c.R*c.A) >> 8),
-			uint8(uint32(c.G*c.A) >> 8),
-			uint8(uint32(c.B*c.A) >> 8),
-			0,
-		}
+		return RGB(
+			uint8(uint32(c.R*c.A)>>8),
+			uint8(uint32(c.G*c.A)>>8),
+			uint8(uint32(c.B*c.A)>>8),
+		)
 	}
 }
 
@@ -114,18 +186,17 @@ func newColorAtFuncNRGBA(p *image.NRGBA) ColorAtFunc {
 	return func(x, y int) Color {
 		c := p.NRGBAAt(x, y)
 		if c.A == 0x00 {
-			return Color{}
+			return Transparent
 		}
 		if c.A == 0xff {
-			return Color{c.R, c.G, c.B, 0}
+			return RGB(c.R, c.G, c.B)
 		}
 		rr, gg, bb, aa := color.NRGBA{c.R, c.G, c.B, c.A}.RGBA()
-		return Color{
-			uint8(rr * aa >> 8),
-			uint8(gg * aa >> 8),
-			uint8(bb * aa >> 8),
-			0,
-		}
+		return RGB(
+			uint8(rr*aa>>8),
+			uint8(gg*aa>>8),
+			uint8(bb*aa>>8),
+		)
 	}
 }
 
@@ -133,7 +204,7 @@ func newColorAtFuncYCbCr(p *image.YCbCr) ColorAtFunc {
 	return func(x, y int) Color {
 		c := p.YCbCrAt(x, y)
 		r, g, b := color.YCbCrToRGB(c.Y, c.Cb, c.Cr)
-		return Color{r, g, b, 0}
+		return RGB(r, g, b)
 	}
 }
 
@@ -167,15 +238,11 @@ func toLinear(c uint8) float64 {
 
 // fromLinear converts a linear RGB channel to sRGB.
 func fromLinear(c float64) uint8 {
-	closest := 0
-	minDelta := math.MaxFloat64
-	for i := range 256 {
-		delta := c - toLinearLUT[i]
-		delta = max(delta, -delta)
-		if delta < minDelta {
-			minDelta = delta
-			closest = i
-		}
+	if c <= 0.0031308 {
+		c = 12.92 * c
+	} else {
+		c = 1.055*math.Pow(c, 1.0/2.4) - 0.055
 	}
-	return uint8(closest)
+	v := uint8(c * 255)
+	return max(0, min(v, 255))
 }

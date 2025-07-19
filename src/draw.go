@@ -2,7 +2,6 @@ package semigraph
 
 import (
 	"cmp"
-	"fmt"
 	"image"
 	"math"
 	"slices"
@@ -24,26 +23,31 @@ func Render(img image.Image) string {
 	minx, miny := img.Bounds().Min.X, img.Bounds().Min.Y
 
 	var out strings.Builder
-	// out.Grow(h * w * 32)
 	for ty := range h {
+		ok := false
 		for tx := range w {
 			fg, bg, r := quantize(tx, ty, minx, miny, at)
-			out.WriteString("\x1b[48;2;")
-			bg.WriteANSI(&out)
-			out.WriteString(";38;2;")
-			fg.WriteANSI(&out)
-			out.WriteByte('m')
+			if !fg.alpha || !bg.alpha {
+				ok = true
+			}
+			WriteStyled(&out, fg, bg)
 			out.WriteRune(r)
 		}
-		out.WriteString("\x1b[m\n")
+		if ok {
+			// Only write the reset sequence if we wrote color in the first place.
+			out.WriteString("\x1b[m")
+		}
+		if ty+1 < h {
+			out.WriteByte('\n')
+		}
 	}
-	fmt.Println(out.Len())
 	return out.String()
 }
 
 func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune) {
 	cs := make([]Color, 8)
-	var rmin, rmax, gmin, gmax, bmin, bmax uint8
+	var rmin, gmin, bmin uint8 = 255, 255, 255
+	var rmax, gmax, bmax uint8
 	for i := range 8 {
 		srcx := x*2 + i%2 + minx
 		srcy := y*4 + i/2 + miny
@@ -57,6 +61,10 @@ func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune
 	rRange := rmax - rmin
 	gRange := gmax - gmin
 	bRange := bmax - bmin
+	// All 8 pixels are the same color.
+	if rRange+gRange+bRange == 0 {
+		return Transparent, cs[0], ' '
+	}
 	switch max(rRange, gRange, bRange) {
 	case rRange:
 		slices.SortFunc(cs, sortR)
