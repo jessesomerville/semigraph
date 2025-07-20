@@ -65,22 +65,40 @@ func clonePix(b []uint8) []byte {
 	return c
 }
 
-func (g *GIF) Play() {
+// Play prints the contents of the GIF to the terminal until the returned
+// function is called.
+func (g *GIF) Play() func() {
 	n := len(g.frames)
 	if n == 0 {
-		return
+		return nil
 	}
 	fmt.Print("\x1b[2J\x1b[H")
 
-	i := 0
-	for {
-		f := g.frames[i]
-		i++
-		i %= n
-		fmt.Print(f.contents)
-		fmt.Printf("\x1b[%dF", f.lines)
-		time.Sleep(f.delay)
+	stop := make(chan struct{})
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			f := g.frames[i]
+			i++
+			i %= n
+			fmt.Print(f.contents)
+			fmt.Printf("\x1b[%dF", f.lines)
+			time.Sleep(f.delay)
+		}
+	}()
+	return func() {
+		stop <- struct{}{}
+		close(stop)
 	}
+}
+
+func (g *GIF) Stop() {
+
 }
 
 func (g *GIF) RenderFrame(n int) (string, error) {

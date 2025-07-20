@@ -23,49 +23,57 @@ func Render(img image.Image) string {
 	minx, miny := img.Bounds().Min.X, img.Bounds().Min.Y
 
 	var out strings.Builder
-	out.Grow(h * w * 32)
 	for ty := range h {
+		ok := false
 		for tx := range w {
 			fg, bg, r := quantize(tx, ty, minx, miny, at)
-			out.WriteString("\x1b[48;2;")
-			bg.WriteANSI(&out)
-			out.WriteString(";38;2;")
-			fg.WriteANSI(&out)
-			out.WriteByte('m')
+			if !fg.alpha || !bg.alpha {
+				ok = true
+			}
+			WriteStyled(&out, fg, bg)
 			out.WriteRune(r)
 		}
-		out.WriteString("\x1b[m\n")
+		if ok {
+			// Only write the reset sequence if we wrote color in the first place.
+			out.WriteString("\x1b[m")
+		}
+		if ty+1 < h {
+			out.WriteByte('\n')
+		}
 	}
-
 	return out.String()
 }
 
 func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune) {
-	cs := make([]pixel, 8)
-	var rmin, rmax, gmin, gmax, bmin, bmax uint8
+	cs := make([]Color, 8)
+	var rmin, gmin, bmin uint8 = 255, 255, 255
+	var rmax, gmax, bmax uint8
 	for i := range 8 {
 		srcx := x*2 + i%2 + minx
 		srcy := y*4 + i/2 + miny
 		c := at(srcx, srcy)
+		c.idx = i
+		cs[i] = c
 		rmin, rmax = min(rmin, c.R), max(rmax, c.R)
 		gmin, gmax = min(gmin, c.G), max(gmax, c.G)
 		bmin, bmax = min(bmin, c.B), max(bmax, c.B)
-		cs[i] = pixel{i, c}
 	}
 	rRange := rmax - rmin
 	gRange := gmax - gmin
 	bRange := bmax - bmin
-	var fn func(pixel, pixel) int
+	// All 8 pixels are the same color.
+	if rRange+gRange+bRange == 0 {
+		return Transparent, cs[0], ' '
+	}
 	switch max(rRange, gRange, bRange) {
 	case rRange:
-		fn = sortR
+		slices.SortFunc(cs, sortR)
 	case gRange:
-		fn = sortG
+		slices.SortFunc(cs, sortG)
 	case bRange:
-		fn = sortB
+		slices.SortFunc(cs, sortB)
 	}
-	slices.SortFunc(cs, fn)
-	avgA, avgB := average(cs[:4]), average(cs[4:])
+	avgA, avgB := Average(cs[:4]), Average(cs[4:])
 
 	var mask uint8
 	for _, c := range cs[:4] {
@@ -74,22 +82,14 @@ func quantize(x, y, minx, miny int, at ColorAtFunc) (fg, bg Color, contents rune
 	return avgA, avgB, blocks[mask]
 }
 
-func sortR(a, b pixel) int {
-	return cmp.Compare(a.color.R, b.color.R)
+func sortR(a, b Color) int {
+	return cmp.Compare(a.R, b.R)
 }
 
-func sortG(a, b pixel) int {
-	return cmp.Compare(a.color.G, b.color.G)
+func sortG(a, b Color) int {
+	return cmp.Compare(a.G, b.G)
 }
 
-func sortB(a, b pixel) int {
-	return cmp.Compare(a.color.B, b.color.B)
-}
-
-func average(colors []pixel) Color {
-	cs := make([]Color, len(colors))
-	for i, c := range colors {
-		cs[i] = c.color
-	}
-	return Average(cs)
+func sortB(a, b Color) int {
+	return cmp.Compare(a.B, b.B)
 }
